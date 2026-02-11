@@ -1,0 +1,8 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=13.0
+opencv-contrib-python>=4.10.0
+numpy>=1.26.0
+scenedetect>=0.6.4
+pystray>=0.19.5
+Pillow>=10.4.0

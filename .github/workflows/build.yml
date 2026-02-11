@@ -1,0 +1,111 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller bridge.spec --noconfirm
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          VER=$(python -c "from bridge.config import BRIDGE_VERSION; print(BRIDGE_VERSION)")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Build installer with Inno Setup
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion="${{ steps.version.outputs.version }}" installer.iss
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/ScriptCompilerBridge-Setup-*.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller bridge.spec --noconfirm
+
+      - name: Extract version
+        id: version
+        run: |
+          VER=$(python -c "from bridge.config import BRIDGE_VERSION; print(BRIDGE_VERSION)")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg || true
+          create-dmg \
+            --volname "ScriptCompiler Bridge" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 425 178 \
+            --icon "ScriptCompilerBridge.app" 175 178 \
+            "dist/ScriptCompilerBridge-${{ steps.version.outputs.version }}-macOS.dmg" \
+            "dist/ScriptCompilerBridge.app" \
+          || hdiutil create -volname "ScriptCompiler Bridge" \
+            -srcfolder "dist/ScriptCompilerBridge" \
+            -ov -format UDZO \
+            "dist/ScriptCompilerBridge-${{ steps.version.outputs.version }}-macOS.dmg"
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/ScriptCompilerBridge-*-macOS.dmg
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/windows-installer/*
+            artifacts/macos-dmg/*
+          generate_release_notes: true
