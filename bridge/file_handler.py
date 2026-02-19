@@ -6,6 +6,15 @@ from .config import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FUNSCRIPT_EXTENSIONS, EX
 
 logger = logging.getLogger(__name__)
 
+# Paths returned by file dialogs are added here so /files/stream can serve them
+_dialog_allowed_paths = set()
+
+
+def is_dialog_allowed_path(path):
+    """Check if a path was returned by a file dialog."""
+    real = os.path.realpath(path)
+    return real in _dialog_allowed_paths
+
 
 def _tk_open_file(title, filetypes):
     """Open a native file dialog using tkinter (must run in a thread)."""
@@ -55,6 +64,7 @@ async def open_video_dialog():
     if not path:
         return None
 
+    _dialog_allowed_paths.add(os.path.realpath(path))
     return {
         "path": path,
         "name": os.path.basename(path),
@@ -79,6 +89,7 @@ async def open_audio_dialog():
     if not path:
         return None
 
+    _dialog_allowed_paths.add(os.path.realpath(path))
     return {
         "path": path,
         "name": os.path.basename(path),
@@ -136,7 +147,9 @@ async def save_funscript_dialog(data, default_name="script.funscript"):
 async def write_funscript(data, path):
     """Write funscript data directly to a given path (no dialog)."""
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        dir_part = os.path.dirname(path)
+        if dir_part:
+            os.makedirs(dir_part, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(data)
     except Exception as e:

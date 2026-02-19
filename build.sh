@@ -20,13 +20,7 @@ if [ ! -f "ffmpeg/ffmpeg" ]; then
     echo "Downloading ffmpeg..."
     mkdir -p ffmpeg
 
-    # Detect architecture
-    ARCH=$(uname -m)
-    if [ "$ARCH" = "arm64" ]; then
-        FFMPEG_URL="https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
-    else
-        FFMPEG_URL="https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
-    fi
+    FFMPEG_URL="https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
 
     curl -L "$FFMPEG_URL" -o ffmpeg/ffmpeg.zip
     unzip -o ffmpeg/ffmpeg.zip -d ffmpeg/

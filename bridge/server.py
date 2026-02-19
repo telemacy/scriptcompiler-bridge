@@ -12,7 +12,7 @@ from typing import Optional
 
 from .config import BRIDGE_VERSION, BRIDGE_NAME, CORS_ALLOW_ORIGIN_REGEX, EXECUTOR
 from .tracker_bridge import TrackerBridge
-from .file_handler import open_video_dialog, open_audio_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript
+from .file_handler import open_video_dialog, open_audio_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript, is_dialog_allowed_path
 from .scene_detector import detect_scenes, cancel_detection
 from .audio_analyzer import cancel_audio_analysis
 from .thumbnail_cache import cancel_pregeneration
@@ -87,6 +87,9 @@ class SceneDetectRequest(BaseModel):
 
 @app.post("/scenes/detect")
 async def detect_scenes_endpoint(req: SceneDetectRequest):
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(req.videoPath, folders) and not is_dialog_allowed_path(req.videoPath):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
     result = await detect_scenes(req.videoPath, req.threshold)
     return JSONResponse(content=result)
 
@@ -106,6 +109,9 @@ async def open_audio():
 @app.get("/files/stream")
 async def stream_file(path: str):
     """Stream a file from disk. Used to load audio into the browser for playback."""
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(path, folders) and not is_dialog_allowed_path(path):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
     if not os.path.isfile(path):
         return JSONResponse(status_code=404, content={"error": "File not found"})
     return FileResponse(path)
@@ -135,6 +141,9 @@ class WriteFunscriptRequest(BaseModel):
 
 @app.post("/files/write-funscript")
 async def write_funscript_endpoint(req: WriteFunscriptRequest):
+    folders = get_video_folders()
+    if not folders or not is_path_in_allowed_folders(req.path, folders):
+        return JSONResponse(status_code=403, content={"success": False, "error": "Access denied"})
     result = await write_funscript(req.data, req.path)
     return JSONResponse(content=result)
 
