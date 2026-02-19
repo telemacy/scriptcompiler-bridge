@@ -25,6 +25,20 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Download ffmpeg (Windows)
+        shell: powershell
+        run: |
+          if (-not (Test-Path "ffmpeg\ffmpeg.exe")) {
+            New-Item -ItemType Directory -Force -Path ffmpeg | Out-Null
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile 'ffmpeg\ffmpeg.zip'
+            Expand-Archive -Path 'ffmpeg\ffmpeg.zip' -DestinationPath 'ffmpeg\temp' -Force
+            $dir = Get-ChildItem -Path 'ffmpeg\temp' -Directory | Where-Object { $_.Name -like 'ffmpeg-*' } | Select-Object -First 1
+            Copy-Item "$($dir.FullName)\bin\ffmpeg.exe" "ffmpeg\ffmpeg.exe"
+            Remove-Item -Recurse -Force 'ffmpeg\temp'
+            Remove-Item -Force 'ffmpeg\ffmpeg.zip'
+          }
+
       - name: Build with PyInstaller
         run: pyinstaller bridge.spec --noconfirm
 
@@ -59,6 +73,16 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pyinstaller
+
+      - name: Download ffmpeg (macOS)
+        run: |
+          if [ ! -f "ffmpeg/ffmpeg" ]; then
+            mkdir -p ffmpeg
+            curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg/ffmpeg.zip
+            unzip -o ffmpeg/ffmpeg.zip -d ffmpeg/
+            rm -f ffmpeg/ffmpeg.zip
+            chmod +x ffmpeg/ffmpeg
+          fi
 
       - name: Build with PyInstaller
         run: pyinstaller bridge.spec --noconfirm

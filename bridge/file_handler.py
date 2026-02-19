@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 
-from .config import VIDEO_EXTENSIONS, FUNSCRIPT_EXTENSIONS, EXECUTOR
+from .config import VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FUNSCRIPT_EXTENSIONS, EXECUTOR
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,30 @@ async def open_video_dialog():
 
     loop = asyncio.get_event_loop()
     path = await loop.run_in_executor(EXECUTOR, _tk_open_file, "Open Video", filetypes)
+
+    if not path:
+        return None
+
+    return {
+        "path": path,
+        "name": os.path.basename(path),
+    }
+
+
+async def open_audio_dialog():
+    """Open a native file dialog for audio files."""
+    audio_pattern = " ".join(f"*.{ext}" for ext in AUDIO_EXTENSIONS)
+    video_pattern = " ".join(f"*.{ext}" for ext in VIDEO_EXTENSIONS)
+    all_pattern = audio_pattern + " " + video_pattern
+    filetypes = [
+        ("Audio & Video Files", all_pattern),
+        ("Audio Files", audio_pattern),
+        ("Video Files", video_pattern),
+        ("All Files", "*.*"),
+    ]
+
+    loop = asyncio.get_event_loop()
+    path = await loop.run_in_executor(EXECUTOR, _tk_open_file, "Open Audio", filetypes)
 
     if not path:
         return None

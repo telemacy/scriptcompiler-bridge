@@ -8,6 +8,16 @@ import os
 block_cipher = None
 is_mac = sys.platform == 'darwin'
 
+# Locate ffmpeg binary to bundle
+_ffmpeg_binaries = []
+_ffmpeg_name = 'ffmpeg.exe' if not is_mac else 'ffmpeg'
+_ffmpeg_path = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'ffmpeg', _ffmpeg_name)
+if os.path.isfile(_ffmpeg_path):
+    _ffmpeg_binaries.append((_ffmpeg_path, 'ffmpeg'))
+    print(f"Bundling ffmpeg from: {_ffmpeg_path}")
+else:
+    print(f"WARNING: ffmpeg not found at {_ffmpeg_path} - audio analysis may not work")
+
 # Packages installed globally but NOT needed by the bridge
 _global_excludes = [
     'torch', 'torchaudio', 'torchvision', 'pytorch_lightning', 'torchmetrics',
@@ -15,7 +25,6 @@ _global_excludes = [
     'transformers', 'sentence_transformers', 'huggingface_hub', 'tokenizers', 'safetensors',
     'datasets', 'accelerate',
     'onnxruntime', 'onnx',
-    'scipy', 'sklearn', 'scikit_learn',
     'pandas', 'matplotlib', 'plotly', 'seaborn',
     'mediapipe',
     'lxml', 'beautifulsoup4', 'bs4',
@@ -73,6 +82,23 @@ bridge_hidden = [
     'uvicorn.lifespan',
     'uvicorn.lifespan.on',
     'PIL.Image',
+    # librosa + audio analysis dependencies
+    'librosa',
+    'librosa.core',
+    'librosa.beat',
+    'librosa.onset',
+    'librosa.feature',
+    'librosa.segment',
+    'librosa.util',
+    'soundfile',
+    'audioread',
+    'sklearn',
+    'sklearn.cluster',
+    'scipy',
+    'scipy.ndimage',
+    'scipy.signal',
+    'scipy.fft',
+    'scipy.sparse',
 ]
 
 if is_mac:
@@ -83,7 +109,7 @@ else:
 bridge_a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=_ffmpeg_binaries,
     datas=[('favicon.png', '.')],
     hiddenimports=bridge_hidden,
     hookspath=[],

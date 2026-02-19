@@ -16,6 +16,34 @@ echo Cleaning previous build...
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
 
+:: Download ffmpeg if not present
+if not exist ffmpeg\ffmpeg.exe (
+    echo.
+    echo Downloading ffmpeg...
+    if not exist ffmpeg mkdir ffmpeg
+    powershell -Command "& { $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile 'ffmpeg\ffmpeg.zip' }"
+    if %errorlevel% neq 0 (
+        echo Failed to download ffmpeg!
+        exit /b 1
+    )
+    echo Extracting ffmpeg...
+    powershell -Command "& { $ProgressPreference='SilentlyContinue'; Expand-Archive -Path 'ffmpeg\ffmpeg.zip' -DestinationPath 'ffmpeg\temp' -Force }"
+    :: Find ffmpeg.exe inside the extracted folder (it's in a versioned subfolder)
+    for /d %%D in (ffmpeg\temp\ffmpeg-*) do (
+        copy "%%D\bin\ffmpeg.exe" "ffmpeg\ffmpeg.exe" >nul
+    )
+    :: Clean up
+    rmdir /s /q ffmpeg\temp
+    del ffmpeg\ffmpeg.zip
+    if not exist ffmpeg\ffmpeg.exe (
+        echo Failed to extract ffmpeg!
+        exit /b 1
+    )
+    echo ffmpeg downloaded successfully.
+) else (
+    echo ffmpeg already present, skipping download.
+)
+
 :: Run PyInstaller
 echo.
 echo Building with PyInstaller...

@@ -6,14 +6,15 @@ import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 
 from .config import BRIDGE_VERSION, BRIDGE_NAME, CORS_ALLOW_ORIGIN_REGEX, EXECUTOR
 from .tracker_bridge import TrackerBridge
-from .file_handler import open_video_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript
+from .file_handler import open_video_dialog, open_audio_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript
 from .scene_detector import detect_scenes, cancel_detection
+from .audio_analyzer import cancel_audio_analysis
 from .thumbnail_cache import cancel_pregeneration
 from .settings import get_video_folders
 from .updater import check_for_update, get_cached_update, download_and_run_update
@@ -67,6 +68,11 @@ async def capabilities():
     caps = ["files", "scenes", "tracking"]
     if get_video_folders():
         caps.append("local_videos")
+    try:
+        import librosa  # noqa: F401
+        caps.append("audio_analysis")
+    except ImportError:
+        pass
     return {
         "capabilities": caps,
         "version": BRIDGE_VERSION,
@@ -89,6 +95,20 @@ async def detect_scenes_endpoint(req: SceneDetectRequest):
 async def open_video():
     result = await open_video_dialog()
     return JSONResponse(content=result or {"cancelled": True})
+
+
+@app.post("/files/open-audio")
+async def open_audio():
+    result = await open_audio_dialog()
+    return JSONResponse(content=result or {"cancelled": True})
+
+
+@app.get("/files/stream")
+async def stream_file(path: str):
+    """Stream a file from disk. Used to load audio into the browser for playback."""
+    if not os.path.isfile(path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+    return FileResponse(path)
 
 
 @app.post("/files/open-funscript")
@@ -296,6 +316,7 @@ async def tracking_ws(websocket: WebSocket):
     logger.info("Tracking WebSocket connected")
 
     scene_detect_task = None
+    audio_analyze_task = None
     thumbnail_pregen_task = None
 
     if not tracker.is_ready:
@@ -330,14 +351,20 @@ async def tracking_ws(websocket: WebSocket):
                     result = await handler(websocket, msg, command, request_id)
                     scene_detect_task = result  # store task ref for cleanup
                     result = None  # handler manages its own responses
+                elif command == "analyze_audio":
+                    result = await handler(websocket, msg, command, request_id)
+                    audio_analyze_task = result
+                    result = None
                 elif command == "pregenerate_thumbnails":
                     result = await handler(websocket, msg, command, request_id)
                     thumbnail_pregen_task = result
                     result = None
-                elif command in ("cancel_scene_detection", "cancel_thumbnail_pregeneration", "ping"):
+                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "ping"):
                     result = await handler(msg)
                     if command == "cancel_scene_detection":
                         scene_detect_task = None
+                    elif command == "cancel_audio_analysis":
+                        audio_analyze_task = None
                     elif command == "cancel_thumbnail_pregeneration":
                         thumbnail_pregen_task = None
                 else:
@@ -372,6 +399,11 @@ async def tracking_ws(websocket: WebSocket):
             cancel_detection()
             scene_detect_task.cancel()
             logger.info("Cancelled scene detection due to WebSocket disconnect")
+        # Cancel any running audio analysis
+        if audio_analyze_task is not None:
+            cancel_audio_analysis()
+            audio_analyze_task.cancel()
+            logger.info("Cancelled audio analysis due to WebSocket disconnect")
         # Cancel any running thumbnail pregeneration
         if thumbnail_pregen_task is not None:
             cancel_pregeneration()

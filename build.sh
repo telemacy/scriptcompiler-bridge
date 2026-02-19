@@ -14,6 +14,34 @@ fi
 echo "Cleaning previous build..."
 rm -rf dist build
 
+# Download ffmpeg if not present
+if [ ! -f "ffmpeg/ffmpeg" ]; then
+    echo
+    echo "Downloading ffmpeg..."
+    mkdir -p ffmpeg
+
+    # Detect architecture
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "arm64" ]; then
+        FFMPEG_URL="https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
+    else
+        FFMPEG_URL="https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
+    fi
+
+    curl -L "$FFMPEG_URL" -o ffmpeg/ffmpeg.zip
+    unzip -o ffmpeg/ffmpeg.zip -d ffmpeg/
+    rm -f ffmpeg/ffmpeg.zip
+    chmod +x ffmpeg/ffmpeg
+
+    if [ ! -f "ffmpeg/ffmpeg" ]; then
+        echo "Failed to download ffmpeg!"
+        exit 1
+    fi
+    echo "ffmpeg downloaded successfully."
+else
+    echo "ffmpeg already present, skipping download."
+fi
+
 # Run PyInstaller
 echo
 echo "Building with PyInstaller..."

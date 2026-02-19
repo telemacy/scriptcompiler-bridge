@@ -3,6 +3,7 @@ import base64
 import logging
 
 from .scene_detector import detect_scenes_with_progress, cancel_detection
+from .audio_analyzer import analyze_audio_with_progress, cancel_audio_analysis
 from .thumbnail_cache import pregenerate_with_progress, cancel_pregeneration
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,36 @@ async def handle_cancel_scene_detection(msg):
     return {"success": True}
 
 
+async def handle_analyze_audio(websocket, msg, command, request_id):
+    """Start audio analysis as a background task. Returns task ref for cleanup."""
+    logger.info("WS command: analyze_audio (with progress)")
+
+    async def _run(ws, cmd, rid, vpath, opts):
+        async for update in analyze_audio_with_progress(
+            video_path=vpath,
+            options=opts,
+        ):
+            update["command"] = cmd
+            if rid is not None:
+                update["_requestId"] = rid
+            await ws.send_json(update)
+
+    task = asyncio.create_task(
+        _run(
+            websocket, command, request_id,
+            msg.get("videoPath") or msg.get("audioPath"),
+            msg.get("options", {}),
+        )
+    )
+    return task
+
+
+async def handle_cancel_audio_analysis(msg):
+    logger.info("WS command: cancel_audio_analysis")
+    cancel_audio_analysis()
+    return {"success": True}
+
+
 async def handle_pregenerate_thumbnails(websocket, msg, command, request_id):
     """Start thumbnail pregeneration as a background task. Returns task ref for cleanup."""
     logger.info("WS command: pregenerate_thumbnails")
@@ -138,6 +169,8 @@ HANDLERS = {
     "cleanup": handle_cleanup,
     "detect_scenes": handle_detect_scenes,
     "cancel_scene_detection": handle_cancel_scene_detection,
+    "analyze_audio": handle_analyze_audio,
+    "cancel_audio_analysis": handle_cancel_audio_analysis,
     "pregenerate_thumbnails": handle_pregenerate_thumbnails,
     "cancel_thumbnail_pregeneration": handle_cancel_thumbnail_pregeneration,
     "ping": handle_ping,

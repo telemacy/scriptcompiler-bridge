@@ -17,3 +17,4 @@ env/
 *.swo
 nul
 .playwright-mcp/
+ffmpeg/
