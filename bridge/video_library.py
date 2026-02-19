@@ -1,6 +1,8 @@
 import os
 import mimetypes
 import logging
+import threading
+import time as _time
 from pathlib import Path
 
 from fastapi import Request
@@ -10,6 +12,142 @@ from .config import VIDEO_EXTENSIONS
 from .settings import get_video_folders
 
 logger = logging.getLogger(__name__)
+
+
+class _CachedCapture:
+    """Keeps a cv2.VideoCapture handle open for reuse across frame requests.
+    Auto-closes after idle_timeout seconds of inactivity.
+    Thread-safe: the lock is held for the entire seek+read+encode cycle.
+    """
+
+    def __init__(self, idle_timeout=30.0):
+        self._lock = threading.Lock()
+        self._cap = None
+        self._path = None
+        self._last_used = 0.0
+        self._idle_timeout = idle_timeout
+        self._timer = None
+
+    def _schedule_cleanup(self):
+        if self._timer is not None:
+            self._timer.cancel()
+        self._timer = threading.Timer(self._idle_timeout, self._cleanup_if_idle)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _cleanup_if_idle(self):
+        with self._lock:
+            if self._cap is not None and (_time.monotonic() - self._last_used) >= self._idle_timeout:
+                self._cap.release()
+                self._cap = None
+                self._path = None
+
+    def _ensure_cap(self, file_path):
+        import cv2
+
+        if self._cap is not None and self._path == file_path:
+            self._last_used = _time.monotonic()
+            self._schedule_cleanup()
+            return self._cap
+
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+            self._path = None
+
+        cap = cv2.VideoCapture(file_path)
+        if not cap.isOpened():
+            return None
+
+        self._cap = cap
+        self._path = file_path
+        self._last_used = _time.monotonic()
+        self._schedule_cleanup()
+        return self._cap
+
+    def extract_frame(self, file_path, time_ms):
+        import cv2
+
+        with self._lock:
+            cap = self._ensure_cap(file_path)
+            if cap is None:
+                return None
+
+            cap.set(cv2.CAP_PROP_POS_MSEC, time_ms)
+            ret, frame = cap.read()
+            if not ret:
+                return None
+
+            h, w = frame.shape[:2]
+            thumb_w = min(w, 320)
+            thumb_h = int(h * (thumb_w / w))
+            frame = cv2.resize(frame, (thumb_w, thumb_h), interpolation=cv2.INTER_AREA)
+
+            _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            return buf.tobytes()
+
+    def extract_frames_batch(self, file_path, times_ms):
+        import cv2
+
+        with self._lock:
+            t_batch_start = _time.perf_counter()
+            cap = self._ensure_cap(file_path)
+            if cap is None:
+                return {}
+
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            # If next target is within this many ms ahead of current position,
+            # read forward instead of seeking. ~2 seconds worth of frames.
+            read_ahead_threshold = 2000.0
+
+            results = {}
+            current_pos = -1.0
+
+            for t in sorted(times_ms):
+                # Decide: seek or read forward?
+                if current_pos < 0 or t < current_pos or (t - current_pos) > read_ahead_threshold:
+                    # Must seek: first frame, backwards, or too far ahead
+                    cap.set(cv2.CAP_PROP_POS_MSEC, t)
+                else:
+                    # Read forward to target - much faster than seeking
+                    frames_to_skip = int((t - current_pos) / (1000.0 / fps)) - 1
+                    for _ in range(max(0, frames_to_skip)):
+                        cap.grab()
+
+                ret, frame = cap.read()
+                if not ret:
+                    continue
+
+                current_pos = cap.get(cv2.CAP_PROP_POS_MSEC)
+
+                h, w = frame.shape[:2]
+                thumb_w = min(w, 320)
+                thumb_h = int(h * (thumb_w / w))
+                frame = cv2.resize(frame, (thumb_w, thumb_h), interpolation=cv2.INTER_AREA)
+
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                results[t] = buf.tobytes()
+
+            t_batch_end = _time.perf_counter()
+            count = len(results)
+            total_ms = (t_batch_end - t_batch_start) * 1000
+            avg = total_ms / count if count > 0 else 0
+            logger.info("batch: %d frames in %.1fms (%.1fms/frame avg)", count, total_ms, avg)
+
+            return results
+
+    def release(self):
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            if self._cap is not None:
+                self._cap.release()
+                self._cap = None
+                self._path = None
+
+
+_frame_capture = _CachedCapture(idle_timeout=30.0)
 
 MIME_MAP = {
     ".mp4": "video/mp4",
@@ -98,6 +236,51 @@ def invalidate_cache():
 def get_mime_type(file_path):
     ext = os.path.splitext(file_path)[1].lower()
     return MIME_MAP.get(ext, "application/octet-stream")
+
+
+def generate_frame_at_time(file_path: str, time_ms: float):
+    """Extract a single JPEG frame from a video at a specific millisecond timestamp."""
+    return _frame_capture.extract_frame(file_path, time_ms)
+
+
+def generate_frames_batch(file_path: str, times_ms: list):
+    """Extract multiple JPEG frames from a video at specific millisecond timestamps.
+    Returns a dict mapping time_ms -> jpeg_bytes.
+    """
+    return _frame_capture.extract_frames_batch(file_path, times_ms)
+
+
+def generate_thumbnail(file_path: str, seek_percent: float = 10.0):
+    """Generate a JPEG thumbnail from a video file using OpenCV."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+
+    cap = cv2.VideoCapture(file_path)
+    if not cap.isOpened():
+        return None
+
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames > 0:
+            target_frame = int(total_frames * (seek_percent / 100.0))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+
+        ret, frame = cap.read()
+        if not ret:
+            return None
+
+        # Resize to thumbnail size (max width 320, maintain aspect ratio)
+        h, w = frame.shape[:2]
+        thumb_w = min(w, 320)
+        thumb_h = int(h * (thumb_w / w))
+        frame = cv2.resize(frame, (thumb_w, thumb_h), interpolation=cv2.INTER_AREA)
+
+        _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        return buf.tobytes()
+    finally:
+        cap.release()
 
 
 async def stream_video(file_path: str, request: Request):

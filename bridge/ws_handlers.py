@@ -3,6 +3,7 @@ import base64
 import logging
 
 from .scene_detector import detect_scenes_with_progress, cancel_detection
+from .thumbnail_cache import pregenerate_with_progress, cancel_pregeneration
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,33 @@ async def handle_cancel_scene_detection(msg):
     return {"success": True}
 
 
+async def handle_pregenerate_thumbnails(websocket, msg, command, request_id):
+    """Start thumbnail pregeneration as a background task. Returns task ref for cleanup."""
+    logger.info("WS command: pregenerate_thumbnails")
+
+    async def _run(ws, cmd, rid, vpath, times):
+        async for update in pregenerate_with_progress(vpath, times):
+            update["command"] = cmd
+            if rid is not None:
+                update["_requestId"] = rid
+            await ws.send_json(update)
+
+    task = asyncio.create_task(
+        _run(
+            websocket, command, request_id,
+            msg["videoPath"],
+            msg.get("times", []),
+        )
+    )
+    return task
+
+
+async def handle_cancel_thumbnail_pregeneration(msg):
+    logger.info("WS command: cancel_thumbnail_pregeneration")
+    cancel_pregeneration()
+    return {"success": True}
+
+
 async def handle_ping(msg):
     return {"success": True, "pong": True}
 
@@ -110,5 +138,7 @@ HANDLERS = {
     "cleanup": handle_cleanup,
     "detect_scenes": handle_detect_scenes,
     "cancel_scene_detection": handle_cancel_scene_detection,
+    "pregenerate_thumbnails": handle_pregenerate_thumbnails,
+    "cancel_thumbnail_pregeneration": handle_cancel_thumbnail_pregeneration,
     "ping": handle_ping,
 }

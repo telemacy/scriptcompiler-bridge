@@ -23,6 +23,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress harmless ConnectionResetError from asyncio (browser cancels video range requests on seek)
+class _ConnectionResetFilter(logging.Filter):
+    def filter(self, record):
+        return "ConnectionResetError" not in record.getMessage()
+
+logging.getLogger("asyncio").addFilter(_ConnectionResetFilter())
+
 
 def main():
     parser = argparse.ArgumentParser(description=BRIDGE_NAME)

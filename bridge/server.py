@@ -14,12 +14,15 @@ from .config import BRIDGE_VERSION, BRIDGE_NAME, CORS_ALLOW_ORIGIN_REGEX, EXECUT
 from .tracker_bridge import TrackerBridge
 from .file_handler import open_video_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript
 from .scene_detector import detect_scenes, cancel_detection
+from .thumbnail_cache import cancel_pregeneration
 from .settings import get_video_folders
 from .updater import check_for_update, get_cached_update, download_and_run_update
 from .video_library import (
     get_cached_videos, scan_and_cache, stream_video,
-    is_path_in_allowed_folders,
+    is_path_in_allowed_folders, generate_thumbnail,
+    generate_frame_at_time, generate_frames_batch,
 )
+from . import thumbnail_cache
 from .ws_handlers import HANDLERS as WS_HANDLERS
 
 logger = logging.getLogger(__name__)
@@ -160,6 +163,88 @@ async def refresh_videos():
     })
 
 
+@app.get("/videos/thumbnail")
+async def get_video_thumbnail(path: str):
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(path, folders):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+    if not os.path.isfile(path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+
+    loop = asyncio.get_event_loop()
+    thumb_bytes = await loop.run_in_executor(EXECUTOR, generate_thumbnail, path)
+
+    if thumb_bytes is None:
+        return JSONResponse(status_code=500, content={"error": "Failed to generate thumbnail"})
+
+    from fastapi.responses import Response
+    return Response(content=thumb_bytes, media_type="image/jpeg", headers={
+        "Cache-Control": "public, max-age=86400",
+    })
+
+
+@app.get("/videos/frame")
+async def get_video_frame(path: str, time: float):
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(path, folders):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+    if not os.path.isfile(path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+
+    loop = asyncio.get_event_loop()
+    frame_bytes = await loop.run_in_executor(EXECUTOR, generate_frame_at_time, path, time)
+
+    if frame_bytes is None:
+        return JSONResponse(status_code=500, content={"error": "Failed to extract frame"})
+
+    from fastapi.responses import Response
+    return Response(content=frame_bytes, media_type="image/jpeg", headers={
+        "Cache-Control": "public, max-age=3600",
+    })
+
+
+class BatchFramesRequest(BaseModel):
+    path: str
+    times: list
+
+
+@app.post("/videos/frames")
+async def get_video_frames_batch(req: BatchFramesRequest):
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(req.path, folders):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+    if not os.path.isfile(req.path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+
+    times = req.times[:500]
+
+    loop = asyncio.get_event_loop()
+
+    # Check disk cache first
+    cached = await loop.run_in_executor(
+        EXECUTOR, thumbnail_cache.get_cached_frames_batch, req.path, times
+    )
+
+    # Extract only uncached frames via OpenCV
+    uncached_times = [t for t in times if t not in cached]
+    if uncached_times:
+        extracted = await loop.run_in_executor(EXECUTOR, generate_frames_batch, req.path, uncached_times)
+        if extracted:
+            # Save newly extracted frames to disk cache in background
+            loop.run_in_executor(EXECUTOR, thumbnail_cache.save_frames_batch, req.path, extracted)
+            cached.update(extracted)
+
+    import base64
+    encoded = {}
+    for t, frame_bytes in cached.items():
+        encoded[str(t)] = base64.b64encode(frame_bytes).decode("ascii")
+
+    return JSONResponse(content={"frames": encoded})
+
+
 @app.get("/videos/funscript")
 async def get_video_funscript(path: str):
     folders = get_video_folders()
@@ -211,6 +296,7 @@ async def tracking_ws(websocket: WebSocket):
     logger.info("Tracking WebSocket connected")
 
     scene_detect_task = None
+    thumbnail_pregen_task = None
 
     if not tracker.is_ready:
         init_result = await tracker.initialize()
@@ -244,10 +330,16 @@ async def tracking_ws(websocket: WebSocket):
                     result = await handler(websocket, msg, command, request_id)
                     scene_detect_task = result  # store task ref for cleanup
                     result = None  # handler manages its own responses
-                elif command in ("cancel_scene_detection", "ping"):
+                elif command == "pregenerate_thumbnails":
+                    result = await handler(websocket, msg, command, request_id)
+                    thumbnail_pregen_task = result
+                    result = None
+                elif command in ("cancel_scene_detection", "cancel_thumbnail_pregeneration", "ping"):
                     result = await handler(msg)
                     if command == "cancel_scene_detection":
                         scene_detect_task = None
+                    elif command == "cancel_thumbnail_pregeneration":
+                        thumbnail_pregen_task = None
                 else:
                     result = await handler(tracker, msg)
 
@@ -280,6 +372,11 @@ async def tracking_ws(websocket: WebSocket):
             cancel_detection()
             scene_detect_task.cancel()
             logger.info("Cancelled scene detection due to WebSocket disconnect")
+        # Cancel any running thumbnail pregeneration
+        if thumbnail_pregen_task is not None:
+            cancel_pregeneration()
+            thumbnail_pregen_task.cancel()
+            logger.info("Cancelled thumbnail pregeneration due to WebSocket disconnect")
         if tracker.is_ready:
             try:
                 await tracker.stop_tracking()
@@ -301,6 +398,9 @@ async def startup_event():
     # Check for updates in background
     loop = asyncio.get_event_loop()
     loop.run_in_executor(EXECUTOR, check_for_update)
+
+    # Clean up old thumbnail caches in background
+    loop.run_in_executor(EXECUTOR, thumbnail_cache.cleanup_old_caches)
 
 
 @app.on_event("shutdown")
