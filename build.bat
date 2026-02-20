@@ -68,10 +68,13 @@ if %errorlevel% neq 0 (
     goto :done
 )
 
+:: Extract version from config.py
+for /f "tokens=*" %%V in ('python -c "from bridge.config import BRIDGE_VERSION; print(BRIDGE_VERSION)"') do set APP_VERSION=%%V
+
 :: Build installer
 echo.
-echo Building installer with Inno Setup...
-iscc installer.iss
+echo Building installer with Inno Setup (v%APP_VERSION%)...
+iscc /DMyAppVersion="%APP_VERSION%" installer.iss
 if %errorlevel% neq 0 (
     echo Installer build failed!
     exit /b 1

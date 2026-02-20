@@ -3,7 +3,9 @@
 ; Build with: iscc installer.iss
 
 #define MyAppName "ScriptCompiler Bridge"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.1.2"
+#endif
 #define MyAppPublisher "ScriptCompiler"
 #define MyAppURL "https://github.com/scriptcompiler/scriptcompiler-bridge"
 #define MyAppExeName "ScriptCompilerBridge.exe"
