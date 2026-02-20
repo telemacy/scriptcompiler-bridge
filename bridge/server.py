@@ -436,9 +436,9 @@ async def startup_event():
     else:
         logger.warning("Tracker not available: %s", result.get("error"))
 
-    # Check for updates in background
+    # Check for updates (await so it's ready before first /health request)
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(EXECUTOR, check_for_update)
+    await loop.run_in_executor(EXECUTOR, check_for_update)
 
     # Clean up old thumbnail caches in background
     loop.run_in_executor(EXECUTOR, thumbnail_cache.cleanup_old_caches)

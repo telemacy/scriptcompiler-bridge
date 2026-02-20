@@ -4,7 +4,7 @@
 
 #define MyAppName "ScriptCompiler Bridge"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.2"
+  #define MyAppVersion "1.1.1"
 #endif
 #define MyAppPublisher "ScriptCompiler"
 #define MyAppURL "https://github.com/scriptcompiler/scriptcompiler-bridge"
