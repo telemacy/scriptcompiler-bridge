@@ -1,8 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 
-BRIDGE_VERSION = "1.1.0"
+BRIDGE_VERSION = "1.1.1"
 BRIDGE_NAME = "ScriptCompiler Bridge"
-GITHUB_REPO = "scriptcompiler/scriptcompiler-bridge"
+GITHUB_REPO = "telemacy/scriptcompiler-bridge"
 
 DEFAULT_PORT = 9876
 DEFAULT_HOST = "127.0.0.1"
