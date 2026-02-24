@@ -5,6 +5,7 @@ import logging
 from .scene_detector import detect_scenes_with_progress, cancel_detection
 from .audio_analyzer import analyze_audio_with_progress, cancel_audio_analysis
 from .thumbnail_cache import pregenerate_with_progress, cancel_pregeneration
+from .stem_separator import separate_stems_with_progress, cancel_stem_separation
 from .settings import get_video_folders
 from .video_library import is_path_in_allowed_folders
 from .file_handler import is_dialog_allowed_path
@@ -192,6 +193,37 @@ async def handle_ping(msg):
     return {"success": True, "pong": True}
 
 
+async def handle_separate_stems(websocket, msg, command, request_id):
+    """Start stem separation as a background task. Returns task ref for cleanup."""
+    logger.info("WS command: separate_stems (with progress)")
+
+    apath = msg.get("audioPath")
+    if not apath or not _is_allowed_path(apath):
+        resp = {"type": "result", "command": command, "success": False, "error": "Access denied"}
+        if request_id is not None:
+            resp["_requestId"] = request_id
+        await websocket.send_json(resp)
+        return None
+
+    async def _run(ws, cmd, rid, ap, opts):
+        async for update in separate_stems_with_progress(ap, opts):
+            update["command"] = cmd
+            if rid is not None:
+                update["_requestId"] = rid
+            await ws.send_json(update)
+
+    task = asyncio.create_task(
+        _run(websocket, command, request_id, apath, msg.get("options", {}))
+    )
+    return task
+
+
+async def handle_cancel_stem_separation(msg):
+    logger.info("WS command: cancel_stem_separation")
+    cancel_stem_separation()
+    return {"success": True}
+
+
 # Command -> handler mapping
 # Handlers that need (tracker, msg, frame_bytes) get those args from the dispatch loop.
 HANDLERS = {
@@ -206,5 +238,7 @@ HANDLERS = {
     "cancel_audio_analysis": handle_cancel_audio_analysis,
     "pregenerate_thumbnails": handle_pregenerate_thumbnails,
     "cancel_thumbnail_pregeneration": handle_cancel_thumbnail_pregeneration,
+    "separate_stems": handle_separate_stems,
+    "cancel_stem_separation": handle_cancel_stem_separation,
     "ping": handle_ping,
 }
