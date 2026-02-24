@@ -17,6 +17,7 @@ from .scene_detector import detect_scenes, cancel_detection
 from .audio_analyzer import cancel_audio_analysis
 from .thumbnail_cache import cancel_pregeneration
 from .stem_separator import cancel_stem_separation
+from .music_analyzer import cancel_music_analysis
 from .settings import get_video_folders
 from .updater import check_for_update, get_cached_update, download_and_run_update
 from .video_library import (
@@ -77,6 +78,12 @@ async def capabilities():
     try:
         import demucs  # noqa: F401
         caps.append("stem_separation")
+    except ImportError:
+        pass
+    try:
+        import beat_this  # noqa: F401
+        import allin1  # noqa: F401
+        caps.append("music_analysis")
     except ImportError:
         pass
     return {
@@ -334,6 +341,7 @@ async def tracking_ws(websocket: WebSocket):
     audio_analyze_task = None
     thumbnail_pregen_task = None
     stem_separation_task = None
+    music_analyze_task = None
 
     if not tracker.is_ready:
         init_result = await tracker.initialize()
@@ -379,7 +387,11 @@ async def tracking_ws(websocket: WebSocket):
                     result = await handler(websocket, msg, command, request_id)
                     stem_separation_task = result
                     result = None
-                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "cancel_stem_separation", "ping"):
+                elif command == "analyze_music":
+                    result = await handler(websocket, msg, command, request_id)
+                    music_analyze_task = result
+                    result = None
+                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "cancel_stem_separation", "cancel_music_analysis", "ping"):
                     result = await handler(msg)
                     if command == "cancel_scene_detection":
                         scene_detect_task = None
@@ -389,6 +401,8 @@ async def tracking_ws(websocket: WebSocket):
                         thumbnail_pregen_task = None
                     elif command == "cancel_stem_separation":
                         stem_separation_task = None
+                    elif command == "cancel_music_analysis":
+                        music_analyze_task = None
                 else:
                     result = await handler(tracker, msg)
 
@@ -435,6 +449,10 @@ async def tracking_ws(websocket: WebSocket):
             cancel_stem_separation()
             stem_separation_task.cancel()
             logger.info("Cancelled stem separation due to WebSocket disconnect")
+        if music_analyze_task is not None:
+            cancel_music_analysis()
+            music_analyze_task.cancel()
+            logger.info("Cancelled music analysis due to WebSocket disconnect")
         if tracker.is_ready:
             try:
                 await tracker.stop_tracking()

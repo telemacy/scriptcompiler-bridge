@@ -6,6 +6,7 @@ from .scene_detector import detect_scenes_with_progress, cancel_detection
 from .audio_analyzer import analyze_audio_with_progress, cancel_audio_analysis
 from .thumbnail_cache import pregenerate_with_progress, cancel_pregeneration
 from .stem_separator import separate_stems_with_progress, cancel_stem_separation
+from .music_analyzer import analyze_music_with_progress, cancel_music_analysis
 from .settings import get_video_folders
 from .video_library import is_path_in_allowed_folders
 from .file_handler import is_dialog_allowed_path
@@ -224,6 +225,40 @@ async def handle_cancel_stem_separation(msg):
     return {"success": True}
 
 
+async def handle_analyze_music(websocket, msg, command, request_id):
+    """Start ML music analysis as a background task. Returns task ref for cleanup."""
+    logger.info("WS command: analyze_music (with progress)")
+
+    apath = msg.get("audioPath") or msg.get("videoPath")
+    if not apath or not _is_allowed_path(apath):
+        resp = {"type": "result", "command": command, "success": False, "error": "Access denied"}
+        if request_id is not None:
+            resp["_requestId"] = request_id
+        await websocket.send_json(resp)
+        return None
+
+    async def _run(ws, cmd, rid, ap, opts):
+        async for update in analyze_music_with_progress(
+            audio_path=ap,
+            options=opts,
+        ):
+            update["command"] = cmd
+            if rid is not None:
+                update["_requestId"] = rid
+            await ws.send_json(update)
+
+    task = asyncio.create_task(
+        _run(websocket, command, request_id, apath, msg.get("options", {}))
+    )
+    return task
+
+
+async def handle_cancel_music_analysis(msg):
+    logger.info("WS command: cancel_music_analysis")
+    cancel_music_analysis()
+    return {"success": True}
+
+
 # Command -> handler mapping
 # Handlers that need (tracker, msg, frame_bytes) get those args from the dispatch loop.
 HANDLERS = {
@@ -240,5 +275,7 @@ HANDLERS = {
     "cancel_thumbnail_pregeneration": handle_cancel_thumbnail_pregeneration,
     "separate_stems": handle_separate_stems,
     "cancel_stem_separation": handle_cancel_stem_separation,
+    "analyze_music": handle_analyze_music,
+    "cancel_music_analysis": handle_cancel_music_analysis,
     "ping": handle_ping,
 }
