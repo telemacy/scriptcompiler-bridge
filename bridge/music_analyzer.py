@@ -269,7 +269,14 @@ def _analyze_music_sync(audio_path, options=None, progress_state=None):
             if _cancel_event.is_set():
                 return _cancelled(progress_state)
 
-            result = allin1.analyze(audio_path)
+            # Use GPU if available (device may already be set from beat detection)
+            try:
+                import torch
+                allin1_device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                allin1_device = "cpu"
+
+            result = allin1.analyze(audio_path, device=allin1_device)
 
             if progress_state is not None:
                 progress_state["percent"] = 75
