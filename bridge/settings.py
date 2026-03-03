@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS = {
     "video_folders": [],
+    "yt_dlp_quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
 }
 
 
@@ -62,5 +63,18 @@ def set_video_folder(folder):
     settings["video_folders"] = [folder]
     save_settings(settings)
     return [folder]
+
+
+def get_settings():
+    return load_settings()
+
+
+def update_settings(updates: dict):
+    allowed_keys = set(DEFAULT_SETTINGS.keys())
+    filtered = {k: v for k, v in updates.items() if k in allowed_keys}
+    settings = load_settings()
+    settings.update(filtered)
+    save_settings(settings)
+    return settings
 
 

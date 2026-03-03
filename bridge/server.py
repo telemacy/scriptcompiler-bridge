@@ -18,7 +18,7 @@ from .audio_analyzer import cancel_audio_analysis
 from .thumbnail_cache import cancel_pregeneration
 from .stem_separator import cancel_stem_separation
 from .music_analyzer import cancel_music_analysis
-from .settings import get_video_folders
+from .settings import get_video_folders, get_settings, update_settings
 from .updater import check_for_update, get_cached_update, download_and_run_update
 from .video_library import (
     get_cached_videos, scan_and_cache, stream_video,
@@ -187,6 +187,21 @@ async def list_videos():
         "folders": folders,
         "count": len(videos),
     })
+
+
+@app.get("/settings")
+async def get_settings_endpoint():
+    return JSONResponse(content=get_settings())
+
+
+class UpdateSettingsRequest(BaseModel):
+    yt_dlp_quality: Optional[str] = None
+
+
+@app.post("/settings")
+async def update_settings_endpoint(req: UpdateSettingsRequest):
+    updates = req.model_dump(exclude_unset=True)
+    return JSONResponse(content=update_settings(updates))
 
 
 @app.get("/videos/stream")
