@@ -259,6 +259,15 @@ async def handle_cancel_music_analysis(msg):
     return {"success": True}
 
 
+async def handle_cancel_download(msg):
+    from .url_loader import cancel_download
+    download_id = msg.get("downloadId")
+    if not download_id:
+        return {"success": False, "error": "Missing downloadId"}
+    ok = cancel_download(download_id)
+    return {"success": ok}
+
+
 # Command -> handler mapping
 # Handlers that need (tracker, msg, frame_bytes) get those args from the dispatch loop.
 HANDLERS = {
@@ -277,5 +286,6 @@ HANDLERS = {
     "cancel_stem_separation": handle_cancel_stem_separation,
     "analyze_music": handle_analyze_music,
     "cancel_music_analysis": handle_cancel_music_analysis,
+    "cancel_download": handle_cancel_download,
     "ping": handle_ping,
 }

@@ -34,17 +34,18 @@ def _get_quality():
     )
 
 
-async def get_output_filename(url: str, output_folder: str) -> str:
+async def get_output_filename(url: str, output_folder: str, output_template: str = None) -> str:
     """Ask yt-dlp what the output filename will be without downloading."""
     ytdlp = get_ytdlp_path()
     quality = _get_quality()
-    template = os.path.join(output_folder, "%(title)s.%(ext)s")
+    if output_template is None:
+        output_template = os.path.join(output_folder, "%(title)s.%(ext)s")
 
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
         "--get-filename",
         "-f", quality,
-        "-o", template,
+        "-o", output_template,
         url,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -79,12 +80,12 @@ async def start_download(url: str, websocket_broadcast) -> tuple:
     if not output_folder:
         raise ValueError("NO_VIDEO_FOLDER")
 
-    file_path = await get_output_filename(url, output_folder)
     download_id = str(uuid.uuid4())[:8]
+    template = os.path.join(output_folder, f"%(title)s [{download_id}].%(ext)s")
+    file_path = await get_output_filename(url, output_folder, output_template=template)
 
     ytdlp = get_ytdlp_path()
     quality = _get_quality()
-    template = os.path.join(output_folder, "%(title)s.%(ext)s")
 
     proc = await asyncio.create_subprocess_exec(
         ytdlp,

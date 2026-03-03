@@ -10,7 +10,9 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from .config import BRIDGE_VERSION, BRIDGE_NAME, CORS_ALLOW_ORIGIN_REGEX, EXECUTOR
+from urllib.parse import quote as url_encode
+
+from .config import BRIDGE_VERSION, BRIDGE_NAME, CORS_ALLOW_ORIGIN_REGEX, DEFAULT_PORT, EXECUTOR
 from .tracker_bridge import TrackerBridge
 from .file_handler import open_video_dialog, open_audio_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript, is_dialog_allowed_path
 from .scene_detector import detect_scenes, cancel_detection
@@ -19,6 +21,7 @@ from .thumbnail_cache import cancel_pregeneration
 from .stem_separator import cancel_stem_separation
 from .music_analyzer import cancel_music_analysis
 from .settings import get_video_folders, get_settings, update_settings
+from .url_loader import start_download as ytdlp_start_download
 from .updater import check_for_update, get_cached_update, download_and_run_update
 from .video_library import (
     get_cached_videos, scan_and_cache, stream_video,
@@ -47,6 +50,19 @@ _shutdown_server = None
 def set_shutdown_callback(cb):
     global _shutdown_server
     _shutdown_server = cb
+
+
+# Active WebSocket connections for broadcasting download progress
+_ws_connections: list = []
+
+
+async def _broadcast_to_ws(message: dict):
+    """Send a message to all connected WebSocket clients."""
+    for ws in list(_ws_connections):
+        try:
+            await ws.send_json(message)
+        except Exception:
+            pass
 
 
 # --- HTTP Endpoints ---
@@ -204,6 +220,37 @@ async def update_settings_endpoint(req: UpdateSettingsRequest):
     return JSONResponse(content=update_settings(updates))
 
 
+class LoadUrlRequest(BaseModel):
+    url: str
+
+
+@app.post("/videos/load-url")
+async def load_url_endpoint(req: LoadUrlRequest, request: Request):
+    url = req.url.strip()
+    if not url.startswith(("http://", "https://")):
+        return JSONResponse(status_code=400, content={"error": "Invalid URL", "code": "INVALID_URL"})
+
+    try:
+        download_id, file_path = await ytdlp_start_download(url, _broadcast_to_ws)
+    except ValueError as e:
+        code = str(e)
+        if code == "NO_VIDEO_FOLDER":
+            return JSONResponse(status_code=400, content={
+                "error": "No video folder configured. Add one in bridge settings.",
+                "code": "NO_VIDEO_FOLDER"
+            })
+        return JSONResponse(status_code=400, content={"error": code, "code": "YTDLP_ERROR"})
+
+    port = request.url.port or DEFAULT_PORT
+    stream_url = f"http://127.0.0.1:{port}/videos/stream?path={url_encode(file_path)}"
+
+    return JSONResponse(content={
+        "stream_url": stream_url,
+        "file_path": file_path,
+        "download_id": download_id,
+    })
+
+
 @app.get("/videos/stream")
 async def stream_video_endpoint(path: str, request: Request):
     return await stream_video(path, request)
@@ -350,6 +397,7 @@ def _parse_ws_message(ws_msg):
 @app.websocket("/ws/tracking")
 async def tracking_ws(websocket: WebSocket):
     await websocket.accept()
+    _ws_connections.append(websocket)
     logger.info("Tracking WebSocket connected")
 
     scene_detect_task = None
@@ -406,7 +454,7 @@ async def tracking_ws(websocket: WebSocket):
                     result = await handler(websocket, msg, command, request_id)
                     music_analyze_task = result
                     result = None
-                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "cancel_stem_separation", "cancel_music_analysis", "ping"):
+                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "cancel_stem_separation", "cancel_music_analysis", "cancel_download", "ping"):
                     result = await handler(msg)
                     if command == "cancel_scene_detection":
                         scene_detect_task = None
@@ -445,6 +493,8 @@ async def tracking_ws(websocket: WebSocket):
     except Exception as e:
         logger.error("Tracking WebSocket error: %s", e)
     finally:
+        if websocket in _ws_connections:
+            _ws_connections.remove(websocket)
         # Cancel any running scene detection
         if scene_detect_task is not None:
             cancel_detection()
