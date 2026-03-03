@@ -18,6 +18,16 @@ if os.path.isfile(_ffmpeg_path):
 else:
     print(f"WARNING: ffmpeg not found at {_ffmpeg_path} - audio analysis may not work")
 
+# Locate yt-dlp binary to bundle
+_ytdlp_binaries = []
+_ytdlp_name = 'yt-dlp.exe' if not is_mac else 'yt-dlp'
+_ytdlp_path = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'yt-dlp', _ytdlp_name)
+if os.path.isfile(_ytdlp_path):
+    _ytdlp_binaries.append((_ytdlp_path, 'yt-dlp'))
+    print(f"Bundling yt-dlp from: {_ytdlp_path}")
+else:
+    print(f"WARNING: yt-dlp not found at {_ytdlp_path}")
+
 # Packages installed globally but NOT needed by the bridge
 _global_excludes = [
     'torch', 'torchaudio', 'torchvision', 'pytorch_lightning', 'torchmetrics',
@@ -109,7 +119,7 @@ else:
 bridge_a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=_ffmpeg_binaries,
+    binaries=_ffmpeg_binaries + _ytdlp_binaries,
     datas=[('favicon.png', '.')],
     hiddenimports=bridge_hidden,
     hookspath=[],
