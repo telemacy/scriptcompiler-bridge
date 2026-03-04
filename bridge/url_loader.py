@@ -18,7 +18,7 @@ _active_downloads = {}
 _url_to_download_id = {}
 
 _PROGRESS_RE = re.compile(
-    r"\[download\]\s+([\d.]+)%\s+of\s+[\d.]+\S+\s+at\s+(\S+)\s+ETA\s+(\S+)"
+    r"\[download\]\s+([\d.]+)%\s+of\s+~?\s*[\d.]+\S+\s+at\s+(.+?)\s+ETA\s+(\S+)"
 )
 
 
