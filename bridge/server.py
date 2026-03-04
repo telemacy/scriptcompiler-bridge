@@ -274,7 +274,10 @@ async def stream_video_endpoint(path: str, request: Request):
 
 @app.get("/videos/active-downloads")
 async def active_downloads_endpoint(request: Request):
+    port = request.url.port or DEFAULT_PORT
     downloads = ytdlp_get_active_downloads()
+    for dl in downloads:
+        dl["stream_url"] = f"http://127.0.0.1:{port}/videos/stream?path={url_encode(dl['file_path'])}"
     return JSONResponse(content={"downloads": downloads})
 
 
