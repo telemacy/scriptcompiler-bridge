@@ -149,6 +149,7 @@ async def start_download(url: str, websocket_broadcast) -> tuple:
 
     download_id = str(uuid.uuid4())[:8]
     template = os.path.join(output_folder, f"%(title)s [{download_id}].%(ext)s")
+
     file_path = await get_output_filename(url, output_folder, output_template=template)
 
     ytdlp = get_ytdlp_path()
@@ -167,7 +168,10 @@ async def start_download(url: str, websocket_broadcast) -> tuple:
         stderr=asyncio.subprocess.STDOUT,
     )
 
-    _active_downloads[download_id] = {"process": proc, "file_path": file_path, "url": url, "cancelled": False}
+    _active_downloads[download_id] = {
+        "process": proc, "file_path": file_path, "url": url,
+        "cancelled": False,
+    }
     _url_to_download_id[url] = download_id
 
     asyncio.create_task(_monitor_progress(download_id, proc, file_path, websocket_broadcast))
@@ -212,6 +216,20 @@ async def _monitor_progress(download_id: str, proc, file_path: str, broadcast):
             "download_id": download_id,
             "message": "Download failed",
         })
+
+
+def get_active_downloads() -> list:
+    """Return list of currently active downloads."""
+    result = []
+    for did, entry in _active_downloads.items():
+        if entry.get("cancelled"):
+            continue
+        result.append({
+            "download_id": did,
+            "file_path": entry["file_path"],
+            "url": entry["url"],
+        })
+    return result
 
 
 def cancel_download(download_id: str) -> bool:

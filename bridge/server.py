@@ -21,7 +21,7 @@ from .thumbnail_cache import cancel_pregeneration
 from .stem_separator import cancel_stem_separation
 from .music_analyzer import cancel_music_analysis
 from .settings import get_video_folders, get_settings, update_settings
-from .url_loader import start_download as ytdlp_start_download, fetch_video_info as ytdlp_fetch_video_info
+from .url_loader import start_download as ytdlp_start_download, fetch_video_info as ytdlp_fetch_video_info, get_active_downloads as ytdlp_get_active_downloads
 from .updater import check_for_update, get_cached_update, download_and_run_update
 from .video_library import (
     get_cached_videos, scan_and_cache, stream_video,
@@ -270,6 +270,12 @@ async def fetch_info_endpoint(req: FetchInfoRequest):
 @app.get("/videos/stream")
 async def stream_video_endpoint(path: str, request: Request):
     return await stream_video(path, request)
+
+
+@app.get("/videos/active-downloads")
+async def active_downloads_endpoint(request: Request):
+    downloads = ytdlp_get_active_downloads()
+    return JSONResponse(content={"downloads": downloads})
 
 
 @app.post("/videos/refresh")
