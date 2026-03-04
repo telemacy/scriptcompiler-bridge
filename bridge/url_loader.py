@@ -24,7 +24,7 @@ _PROGRESS_RE = re.compile(
 
 async def _broadcast_library_updated(broadcast):
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _scan_and_cache)
         await broadcast({"type": "library_updated"})
     except Exception as e:
