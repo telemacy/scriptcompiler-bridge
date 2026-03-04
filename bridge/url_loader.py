@@ -130,11 +130,12 @@ async def fetch_video_info(url: str) -> dict:
     }
 
 
-async def start_download(url: str, websocket_broadcast) -> tuple:
+async def start_download(url: str, websocket_broadcast, video_info=None) -> tuple:
     """
     Start downloading url. Returns (download_id, file_path).
     Responds immediately; download continues in background.
     websocket_broadcast: async callable(dict) to send progress events.
+    video_info: optional dict with title, thumbnail, uploader, duration, cast, tags.
     """
     # Dedup: return existing download for same URL
     if url in _url_to_download_id:
@@ -170,7 +171,7 @@ async def start_download(url: str, websocket_broadcast) -> tuple:
 
     _active_downloads[download_id] = {
         "process": proc, "file_path": file_path, "url": url,
-        "cancelled": False,
+        "cancelled": False, "video_info": video_info,
     }
     _url_to_download_id[url] = download_id
 
@@ -228,6 +229,7 @@ def get_active_downloads() -> list:
             "download_id": did,
             "file_path": entry["file_path"],
             "url": entry["url"],
+            "video_info": entry.get("video_info"),
         })
     return result
 

@@ -222,6 +222,7 @@ async def update_settings_endpoint(req: UpdateSettingsRequest):
 
 class LoadUrlRequest(BaseModel):
     url: str
+    video_info: Optional[dict] = None
 
 
 @app.post("/videos/load-url")
@@ -231,7 +232,7 @@ async def load_url_endpoint(req: LoadUrlRequest, request: Request):
         return JSONResponse(status_code=400, content={"error": "Invalid URL", "code": "INVALID_URL"})
 
     try:
-        download_id, file_path = await ytdlp_start_download(url, _broadcast_to_ws)
+        download_id, file_path = await ytdlp_start_download(url, _broadcast_to_ws, video_info=req.video_info)
     except ValueError as e:
         code = str(e)
         if code == "NO_VIDEO_FOLDER":
