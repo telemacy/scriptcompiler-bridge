@@ -7,6 +7,7 @@ import logging
 
 from .settings import get_settings, get_video_folders
 from .ytdlp_utils import get_ytdlp_path
+from .video_library import scan_and_cache as _scan_and_cache
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,15 @@ _url_to_download_id = {}
 _PROGRESS_RE = re.compile(
     r"\[download\]\s+([\d.]+)%\s+of\s+[\d.]+\S+\s+at\s+(\S+)\s+ETA\s+(\S+)"
 )
+
+
+async def _broadcast_library_updated(broadcast):
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _scan_and_cache)
+        await broadcast({"type": "library_updated"})
+    except Exception as e:
+        logger.warning("Failed to broadcast library_updated: %s", e)
 
 
 def _get_output_folder():
@@ -195,6 +205,7 @@ async def _monitor_progress(download_id: str, proc, file_path: str, broadcast):
             "download_id": download_id,
             "file_path": file_path,
         })
+        asyncio.create_task(_broadcast_library_updated(broadcast))
     elif not was_cancelled:
         await broadcast({
             "type": "download_error",
