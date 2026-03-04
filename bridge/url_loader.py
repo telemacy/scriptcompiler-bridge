@@ -37,6 +37,8 @@ def _get_quality():
 async def get_output_filename(url: str, output_folder: str, output_template: str = None) -> str:
     """Ask yt-dlp what the output filename will be without downloading."""
     ytdlp = get_ytdlp_path()
+    if ytdlp is None:
+        raise ValueError("yt-dlp binary not found. Please reinstall the bridge.")
     quality = _get_quality()
     if output_template is None:
         output_template = os.path.join(output_folder, "%(title)s.%(ext)s")
@@ -85,6 +87,8 @@ async def start_download(url: str, websocket_broadcast) -> tuple:
     file_path = await get_output_filename(url, output_folder, output_template=template)
 
     ytdlp = get_ytdlp_path()
+    if ytdlp is None:
+        raise ValueError("yt-dlp binary not found. Please reinstall the bridge.")
     quality = _get_quality()
 
     proc = await asyncio.create_subprocess_exec(
