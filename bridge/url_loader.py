@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import uuid
@@ -94,10 +95,9 @@ async def fetch_video_info(url: str) -> dict:
     if not raw:
         raise ValueError("yt-dlp returned no output")
 
-    import json as _json
     try:
-        info = _json.loads(raw)
-    except _json.JSONDecodeError as e:
+        info = json.loads(raw)
+    except json.JSONDecodeError as e:
         raise ValueError(f"Failed to parse yt-dlp output: {e}")
 
     cast = info.get("cast") or []
