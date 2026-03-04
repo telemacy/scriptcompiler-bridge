@@ -24,6 +24,17 @@ _PROGRESS_RE = re.compile(
 )
 
 
+def _cleanup_partial_file(file_path):
+    """Remove a partially-downloaded file and its .part counterpart."""
+    for path in (file_path, file_path + ".part"):
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                logger.info("Removed partial download: %s", path)
+        except OSError as e:
+            logger.warning("Failed to remove partial file %s: %s", path, e)
+
+
 async def _broadcast_library_updated(broadcast):
     try:
         loop = asyncio.get_running_loop()
@@ -74,7 +85,13 @@ async def get_output_filename(url: str, output_folder: str, output_template: str
     lines = stdout.decode("utf-8", errors="replace").strip().splitlines()
     if not lines or not lines[0]:
         raise ValueError("yt-dlp returned no filename")
-    filename = lines[0]
+    filename = os.path.realpath(lines[0])
+
+    # Ensure the resolved path stays within the output folder
+    real_folder = os.path.realpath(output_folder)
+    if not filename.startswith(real_folder + os.sep) and filename != real_folder:
+        raise ValueError("Output path escaped the video folder")
+
     return filename
 
 
@@ -209,9 +226,9 @@ async def _monitor_progress(download_id: str, proc, file_path: str, broadcast):
     await proc.wait()
 
     entry = _active_downloads.pop(download_id, None)
-    was_cancelled = entry["cancelled"] if entry else False
+    was_cancelled = entry.get("cancelled", False) if entry else False
     if entry:
-        _url_to_download_id.pop(entry["url"], None)
+        _url_to_download_id.pop(entry.get("url"), None)
 
     if proc.returncode == 0:
         await broadcast({
@@ -221,6 +238,7 @@ async def _monitor_progress(download_id: str, proc, file_path: str, broadcast):
         })
         asyncio.create_task(_broadcast_library_updated(broadcast))
     elif was_cancelled:
+        _cleanup_partial_file(file_path)
         await broadcast({
             "type": "download_cancelled",
             "download_id": download_id,
