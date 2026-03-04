@@ -2,6 +2,8 @@ import asyncio
 import json
 import os
 import re
+import subprocess
+import sys
 import uuid
 import logging
 
@@ -158,6 +160,12 @@ async def start_download(url: str, websocket_broadcast, video_info=None) -> tupl
         raise ValueError("yt-dlp binary not found. Please reinstall the bridge.")
     quality = _get_quality()
 
+    # On Windows, create a new process group so we can kill the entire tree
+    # (yt-dlp may spawn ffmpeg child processes that outlive the parent)
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
         "-f", quality,
@@ -167,6 +175,7 @@ async def start_download(url: str, websocket_broadcast, video_info=None) -> tupl
         url,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        **kwargs,
     )
 
     _active_downloads[download_id] = {
@@ -211,7 +220,12 @@ async def _monitor_progress(download_id: str, proc, file_path: str, broadcast):
             "file_path": file_path,
         })
         asyncio.create_task(_broadcast_library_updated(broadcast))
-    elif not was_cancelled:
+    elif was_cancelled:
+        await broadcast({
+            "type": "download_cancelled",
+            "download_id": download_id,
+        })
+    else:
         await broadcast({
             "type": "download_error",
             "download_id": download_id,
@@ -241,8 +255,17 @@ def cancel_download(download_id: str) -> bool:
         return False
     entry["cancelled"] = True
     _url_to_download_id.pop(entry["url"], None)
+    proc = entry["process"]
     try:
-        entry["process"].terminate()
+        if sys.platform == "win32":
+            # Kill the entire process tree on Windows (yt-dlp + ffmpeg children)
+            subprocess.call(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            proc.kill()
     except Exception:
         pass
     return True
