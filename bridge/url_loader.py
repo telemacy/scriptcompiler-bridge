@@ -65,6 +65,61 @@ async def get_output_filename(url: str, output_folder: str, output_template: str
     return filename
 
 
+async def fetch_video_info(url: str) -> dict:
+    ytdlp = get_ytdlp_path()
+    if ytdlp is None:
+        raise ValueError("yt-dlp binary not found. Please reinstall the bridge.")
+
+    proc = await asyncio.create_subprocess_exec(
+        ytdlp,
+        "--dump-json",
+        "--no-playlist",
+        url,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise ValueError("Timed out fetching video info (30s)")
+
+    if proc.returncode != 0:
+        error_msg = stderr.decode("utf-8", errors="replace").strip()
+        lines = [l for l in error_msg.splitlines() if l.strip()]
+        raise ValueError(lines[-1] if lines else "yt-dlp returned an error")
+
+    raw = stdout.decode("utf-8", errors="replace").strip()
+    if not raw:
+        raise ValueError("yt-dlp returned no output")
+
+    import json as _json
+    try:
+        info = _json.loads(raw)
+    except _json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse yt-dlp output: {e}")
+
+    cast = info.get("cast") or []
+    if not cast and info.get("artists"):
+        artists = info["artists"]
+        cast = artists if isinstance(artists, list) else [artists]
+
+    tags = info.get("tags") or []
+    categories = info.get("categories") or []
+    all_tags = list(dict.fromkeys(tags + categories))
+
+    return {
+        "title": info.get("title") or "",
+        "uploader": info.get("uploader") or info.get("channel") or "",
+        "duration": info.get("duration"),
+        "thumbnail": info.get("thumbnail") or "",
+        "cast": cast,
+        "tags": all_tags,
+        "webpage_url": info.get("webpage_url") or url,
+    }
+
+
 async def start_download(url: str, websocket_broadcast) -> tuple:
     """
     Start downloading url. Returns (download_id, file_path).

@@ -21,7 +21,7 @@ from .thumbnail_cache import cancel_pregeneration
 from .stem_separator import cancel_stem_separation
 from .music_analyzer import cancel_music_analysis
 from .settings import get_video_folders, get_settings, update_settings
-from .url_loader import start_download as ytdlp_start_download
+from .url_loader import start_download as ytdlp_start_download, fetch_video_info as ytdlp_fetch_video_info
 from .updater import check_for_update, get_cached_update, download_and_run_update
 from .video_library import (
     get_cached_videos, scan_and_cache, stream_video,
@@ -249,6 +249,22 @@ async def load_url_endpoint(req: LoadUrlRequest, request: Request):
         "file_path": file_path,
         "download_id": download_id,
     })
+
+
+class FetchInfoRequest(BaseModel):
+    url: str
+
+
+@app.post("/videos/fetch-info")
+async def fetch_info_endpoint(req: FetchInfoRequest):
+    url = req.url.strip()
+    if not url.startswith(("http://", "https://")):
+        return JSONResponse(status_code=400, content={"error": "Invalid URL", "code": "INVALID_URL"})
+    try:
+        info = await ytdlp_fetch_video_info(url)
+        return JSONResponse(content=info)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "code": "FETCH_INFO_ERROR"})
 
 
 @app.get("/videos/stream")
