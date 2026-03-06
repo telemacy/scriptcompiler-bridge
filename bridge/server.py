@@ -372,6 +372,30 @@ async def stitch_cancel_endpoint():
     return JSONResponse(content={"cancelled": True})
 
 
+@app.get("/files/read")
+async def read_file_endpoint(path: str):
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(path, folders) and not is_dialog_allowed_path(path):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+    if not os.path.isfile(path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+
+    return FileResponse(path)
+
+
+@app.head("/files/read")
+async def check_file_exists_endpoint(path: str):
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(path, folders) and not is_dialog_allowed_path(path):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+    if not os.path.isfile(path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+
+    return JSONResponse(status_code=200, content={})
+
+
 @app.get("/videos/thumbnail")
 async def get_video_thumbnail(path: str):
     folders = get_video_folders()
