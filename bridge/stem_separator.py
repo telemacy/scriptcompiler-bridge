@@ -285,7 +285,7 @@ async def separate_stems_with_progress(audio_path, options=None):
         yield {"type": "result", "success": False, "error": "No audio path provided"}
         return
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     progress_state = {"stage": "init", "percent": 0, "done": False}
 
     future = loop.run_in_executor(
