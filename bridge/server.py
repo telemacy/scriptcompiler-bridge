@@ -16,6 +16,7 @@ from .config import BRIDGE_VERSION, BRIDGE_NAME, CORS_ALLOW_ORIGIN_REGEX, DEFAUL
 from .tracker_bridge import TrackerBridge
 from .file_handler import open_video_dialog, open_audio_dialog, open_funscript_dialog, save_funscript_dialog, write_funscript, is_dialog_allowed_path
 from .scene_detector import detect_scenes, cancel_detection
+from .video_stitcher import start_stitch_background, get_stitch_progress, cancel_stitching
 from .audio_analyzer import cancel_audio_analysis
 from .thumbnail_cache import cancel_pregeneration
 from .stem_separator import cancel_stem_separation
@@ -291,6 +292,84 @@ async def refresh_videos():
         "folders": folders,
         "count": len(videos),
     })
+
+
+class ClipRange(BaseModel):
+    start: float
+    end: float
+
+class StitchRequest(BaseModel):
+    video_path: str
+    clips: list[ClipRange]
+    output_name: str
+
+
+_stitch_future = None
+
+
+@app.post("/videos/stitch")
+async def stitch_videos_endpoint(req: StitchRequest):
+    global _stitch_future
+    folders = get_video_folders()
+    if not is_path_in_allowed_folders(req.video_path, folders) and not is_dialog_allowed_path(req.video_path):
+        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+    if not os.path.isfile(req.video_path):
+        return JSONResponse(status_code=404, content={"error": "Video file not found"})
+
+    if not req.clips or len(req.clips) == 0:
+        return JSONResponse(status_code=400, content={"error": "No clips provided"})
+
+    if len(req.clips) > 15:
+        return JSONResponse(status_code=400, content={"error": "Maximum 15 clips allowed"})
+
+    progress = get_stitch_progress()
+    if progress.get("active"):
+        return JSONResponse(status_code=409, content={"error": "Stitching already in progress"})
+
+    # Determine output directory: first video folder or temp
+    if folders:
+        output_dir = folders[0]
+    else:
+        import tempfile
+        output_dir = tempfile.gettempdir()
+
+    output_path = os.path.join(output_dir, f"{req.output_name}.mp4")
+
+    clips_data = [{"start": c.start, "end": c.end} for c in req.clips]
+    _stitch_future = start_stitch_background(req.video_path, clips_data, output_path)
+
+    return JSONResponse(content={"started": True})
+
+
+@app.get("/videos/stitch/progress")
+async def stitch_progress_endpoint():
+    global _stitch_future
+    progress = get_stitch_progress()
+
+    # If done, include the final result from progress_state
+    if progress.get("done"):
+        result = progress.get("result")
+        _stitch_future = None
+        return JSONResponse(content={
+            "done": True,
+            "stage": progress.get("stage", "done"),
+            "percent": progress.get("percent", 100),
+            "result": result or {"success": False, "error": "No result available"}
+        })
+
+    return JSONResponse(content={
+        "done": False,
+        "stage": progress.get("stage", "idle"),
+        "percent": progress.get("percent", 0),
+        "active": progress.get("active", False)
+    })
+
+
+@app.post("/videos/stitch/cancel")
+async def stitch_cancel_endpoint():
+    cancel_stitching()
+    return JSONResponse(content={"cancelled": True})
 
 
 @app.get("/videos/thumbnail")
