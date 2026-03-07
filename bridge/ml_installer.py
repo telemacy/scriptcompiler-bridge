@@ -97,16 +97,47 @@ def cancel_ml_install():
     _install_progress["cancelled"] = True
 
 
+def _get_pip_executable(target_dir):
+    """Find pip in the target directory or as a module."""
+    # Check for pip installed in target dir (Scripts/pip or bin/pip)
+    if sys.platform == 'win32':
+        pip_script = os.path.join(target_dir, 'Scripts', 'pip.exe')
+    else:
+        pip_script = os.path.join(target_dir, 'bin', 'pip')
+    if os.path.isfile(pip_script):
+        return [pip_script]
+
+    # Check if pip module is available via the bundled python
+    python = _get_python_executable()
+    try:
+        result = subprocess.run(
+            [python, "-m", "pip", "--version"],
+            capture_output=True, text=True, timeout=10,
+            env={**os.environ, "PYTHONPATH": target_dir},
+        )
+        if result.returncode == 0:
+            return [python, "-m", "pip"]
+    except Exception:
+        pass
+
+    return None
+
+
 def _run_pip(args, target_dir, progress_state, stage_name, percent_start, percent_end):
     """Run a pip install command and track progress."""
-    python = _get_python_executable()
+    pip_cmd = _get_pip_executable(target_dir)
+    if not pip_cmd:
+        return False, "pip not found"
 
-    cmd = [
-        python, "-m", "pip", "install",
+    cmd = pip_cmd + [
+        "install",
         "--target", target_dir,
         "--no-warn-script-location",
         "--disable-pip-version-check",
     ] + args
+
+    # Set PYTHONPATH so pip can find itself in target_dir
+    env = {**os.environ, "PYTHONPATH": target_dir}
 
     progress_state["stage"] = stage_name
     progress_state["percent"] = percent_start
@@ -119,6 +150,7 @@ def _run_pip(args, target_dir, progress_state, stage_name, percent_start, percen
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=env,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
         )
 
@@ -155,29 +187,64 @@ def _run_pip(args, target_dir, progress_state, stage_name, percent_start, percen
         return False, str(e)
 
 
-def _ensure_pip():
-    """Make sure pip is available in the Python environment."""
-    python = _get_python_executable()
-    try:
-        result = subprocess.run(
-            [python, "-m", "pip", "--version"],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode == 0:
-            return True
-    except Exception:
-        pass
+def _ensure_pip(target_dir):
+    """Make sure pip is available, downloading get-pip.py if needed."""
+    # Check if pip is already usable
+    if _get_pip_executable(target_dir):
+        logger.info("pip already available")
+        return True
 
-    # Try to bootstrap pip
+    python = _get_python_executable()
+
+    # Try ensurepip first (works in non-frozen environments)
+    if not getattr(sys, 'frozen', False):
+        try:
+            result = subprocess.run(
+                [python, "-m", "ensurepip", "--default-pip"],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Download get-pip.py and install pip into target directory
+    logger.info("Downloading get-pip.py to bootstrap pip...")
+    get_pip_path = os.path.join(target_dir, "get-pip.py")
+
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(
+            "https://bootstrap.pypa.io/get-pip.py",
+            get_pip_path
+        )
+    except Exception as e:
+        logger.error("Failed to download get-pip.py: %s", e)
+        return False
+
+    # Run get-pip.py to install pip into the target directory
     try:
         result = subprocess.run(
-            [python, "-m", "ensurepip", "--default-pip"],
-            capture_output=True, text=True, timeout=120
+            [python, get_pip_path, "--target", target_dir, "--no-warn-script-location"],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, "PYTHONPATH": target_dir},
         )
-        return result.returncode == 0
+        logger.info("get-pip.py output: %s", result.stdout[-500:] if result.stdout else "")
+        if result.returncode != 0:
+            logger.error("get-pip.py failed: %s", result.stderr[-500:] if result.stderr else "")
+            return False
     except Exception as e:
-        logger.error("Failed to bootstrap pip: %s", e)
+        logger.error("Failed to run get-pip.py: %s", e)
         return False
+    finally:
+        # Clean up get-pip.py
+        try:
+            os.remove(get_pip_path)
+        except OSError:
+            pass
+
+    # Verify pip is now available
+    return _get_pip_executable(target_dir) is not None
 
 
 def _install_ml_packages_sync():
@@ -197,7 +264,7 @@ def _install_ml_packages_sync():
         _install_progress["stage"] = "checking_pip"
         _install_progress["percent"] = 2
 
-        if not _ensure_pip():
+        if not _ensure_pip(target_dir):
             _install_progress["error"] = "pip is not available and could not be bootstrapped"
             _install_progress["done"] = True
             _install_progress["active"] = False
