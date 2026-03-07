@@ -58,7 +58,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
-    Flags: nowait postinstall skipifsilent shellexec
+    Flags: nowait postinstall shellexec
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/F /IM ScriptCompilerBridge.exe"; Flags: runhidden

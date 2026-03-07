@@ -140,9 +140,13 @@ def download_and_run_update(shutdown_callback=None):
                 f.write(installer_data)
 
             logger.info("Installer saved to %s, launching...", installer_path)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
             subprocess.Popen(
                 [installer_path, "/SILENT", "/RESTARTAPPLICATIONS"],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
+                startupinfo=startupinfo,
             )
 
         elif sys.platform == "darwin":
