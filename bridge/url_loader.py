@@ -67,6 +67,10 @@ async def get_output_filename(url: str, output_folder: str, output_template: str
     if output_template is None:
         output_template = os.path.join(output_folder, "%(title)s.%(ext)s")
 
+    kw = {}
+    if sys.platform == "win32":
+        kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
         "--get-filename",
@@ -75,6 +79,7 @@ async def get_output_filename(url: str, output_folder: str, output_template: str
         url,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **kw,
     )
     stdout, stderr = await proc.communicate()
 
@@ -100,6 +105,10 @@ async def fetch_video_info(url: str) -> dict:
     if ytdlp is None:
         raise ValueError("yt-dlp binary not found. Please reinstall the bridge.")
 
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
         "--dump-json",
@@ -107,6 +116,7 @@ async def fetch_video_info(url: str) -> dict:
         url,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **kwargs,
     )
 
     try:
@@ -181,7 +191,7 @@ async def start_download(url: str, websocket_broadcast, video_info=None) -> tupl
     # (yt-dlp may spawn ffmpeg child processes that outlive the parent)
     kwargs = {}
     if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
 
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
@@ -281,6 +291,7 @@ def cancel_download(download_id: str) -> bool:
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
         else:
             proc.kill()

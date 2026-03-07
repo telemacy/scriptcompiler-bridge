@@ -87,7 +87,7 @@ def _stitch_videos_sync(video_path, clips, output_path, progress_state=None):
 
                 kwargs = {}
                 if sys.platform == "win32":
-                    kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                    kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
 
                 proc = subprocess.Popen(
                     cmd,
@@ -158,7 +158,7 @@ def _stitch_videos_sync(video_path, clips, output_path, progress_state=None):
 
             kwargs = {}
             if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
 
             proc = subprocess.Popen(
                 cmd_concat,
