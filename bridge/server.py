@@ -228,6 +228,7 @@ async def get_settings_endpoint():
 
 class UpdateSettingsRequest(BaseModel):
     yt_dlp_quality: Optional[str] = None
+    autostart: Optional[bool] = None
 
 
 @app.post("/settings")
