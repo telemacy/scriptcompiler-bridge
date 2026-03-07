@@ -7,6 +7,7 @@ from .audio_analyzer import analyze_audio_with_progress, cancel_audio_analysis
 from .thumbnail_cache import pregenerate_with_progress, cancel_pregeneration
 from .stem_separator import separate_stems_with_progress, cancel_stem_separation
 from .music_analyzer import analyze_music_with_progress, cancel_music_analysis
+from .ml_installer import install_ml_packages_with_progress, cancel_ml_install, get_ml_status, get_install_progress
 from .settings import get_video_folders
 from .video_library import is_path_in_allowed_folders
 from .file_handler import is_dialog_allowed_path
@@ -259,6 +260,32 @@ async def handle_cancel_music_analysis(msg):
     return {"success": True}
 
 
+async def handle_install_ml_packages(websocket, msg, command, request_id):
+    """Start ML package installation as a background task. Returns task ref for cleanup."""
+    logger.info("WS command: install_ml_packages")
+
+    async def _run(ws, cmd, rid):
+        async for update in install_ml_packages_with_progress():
+            update["command"] = cmd
+            if rid is not None:
+                update["_requestId"] = rid
+            await ws.send_json(update)
+
+    task = asyncio.create_task(_run(websocket, command, request_id))
+    return task
+
+
+async def handle_cancel_ml_install(msg):
+    logger.info("WS command: cancel_ml_install")
+    cancel_ml_install()
+    return {"success": True}
+
+
+async def handle_get_ml_status(tracker, msg):
+    logger.info("WS command: get_ml_status")
+    return {"success": True, **get_ml_status()}
+
+
 async def handle_cancel_download(msg):
     from .url_loader import cancel_download
     download_id = msg.get("downloadId")
@@ -287,5 +314,8 @@ HANDLERS = {
     "analyze_music": handle_analyze_music,
     "cancel_music_analysis": handle_cancel_music_analysis,
     "cancel_download": handle_cancel_download,
+    "install_ml_packages": handle_install_ml_packages,
+    "cancel_ml_install": handle_cancel_ml_install,
+    "get_ml_status": handle_get_ml_status,
     "ping": handle_ping,
 }

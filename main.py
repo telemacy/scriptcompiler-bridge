@@ -15,6 +15,10 @@ import uvicorn
 
 from bridge.config import DEFAULT_PORT, DEFAULT_HOST, BRIDGE_NAME, BRIDGE_VERSION
 from bridge.server import set_shutdown_callback
+from bridge.ml_installer import setup_ml_path
+
+# Add ML packages to sys.path early so they're importable
+setup_ml_path()
 
 logging.basicConfig(
     level=logging.INFO,
