@@ -33,7 +33,7 @@ def setup_ml_path():
 def _get_python_executable():
     """Get the Python executable path, works in both dev and frozen (PyInstaller) modes."""
     if getattr(sys, 'frozen', False):
-        # PyInstaller bundle: python is in _internal
+        # PyInstaller bundle: look for python in _internal first
         bundle_dir = sys._MEIPASS
         if sys.platform == 'win32':
             python = os.path.join(bundle_dir, 'python.exe')
@@ -41,7 +41,47 @@ def _get_python_executable():
             python = os.path.join(bundle_dir, 'python')
         if os.path.isfile(python):
             return python
+
+        # Bundled python not found - find system Python
+        system_python = _find_system_python()
+        if system_python:
+            return system_python
+
+        logger.warning("No usable Python found in bundle or system PATH")
     return sys.executable
+
+
+def _find_system_python():
+    """Find a system Python installation that can be used to run pip."""
+    import shutil
+
+    # Check common names in PATH (python first on Windows, python3 first elsewhere)
+    candidates = ['python', 'python3'] if sys.platform == 'win32' else ['python3', 'python']
+    for name in candidates:
+        path = shutil.which(name)
+        if path:
+            try:
+                result = subprocess.run(
+                    [path, '--version'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0 and 'Python 3' in result.stdout:
+                    logger.info("Found system Python: %s (%s)", path, result.stdout.strip())
+                    return path
+            except Exception:
+                continue
+
+    # Check common install locations on Windows
+    if sys.platform == 'win32':
+        local_programs = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'Programs', 'Python')
+        if os.path.isdir(local_programs):
+            for entry in sorted(os.listdir(local_programs), reverse=True):
+                candidate = os.path.join(local_programs, entry, 'python.exe')
+                if os.path.isfile(candidate):
+                    logger.info("Found system Python at: %s", candidate)
+                    return candidate
+
+    return None
 
 
 def get_ml_status():
