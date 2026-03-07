@@ -5,9 +5,6 @@ import logging
 from .scene_detector import detect_scenes_with_progress, cancel_detection
 from .audio_analyzer import analyze_audio_with_progress, cancel_audio_analysis
 from .thumbnail_cache import pregenerate_with_progress, cancel_pregeneration
-from .stem_separator import separate_stems_with_progress, cancel_stem_separation
-from .music_analyzer import analyze_music_with_progress, cancel_music_analysis
-from .ml_installer import install_ml_packages_with_progress, cancel_ml_install, get_ml_status, get_install_progress
 from .settings import get_video_folders
 from .video_library import is_path_in_allowed_folders
 from .file_handler import is_dialog_allowed_path
@@ -195,97 +192,6 @@ async def handle_ping(msg):
     return {"success": True, "pong": True}
 
 
-async def handle_separate_stems(websocket, msg, command, request_id):
-    """Start stem separation as a background task. Returns task ref for cleanup."""
-    logger.info("WS command: separate_stems (with progress)")
-
-    apath = msg.get("audioPath")
-    if not apath or not _is_allowed_path(apath):
-        resp = {"type": "result", "command": command, "success": False, "error": "Access denied"}
-        if request_id is not None:
-            resp["_requestId"] = request_id
-        await websocket.send_json(resp)
-        return None
-
-    async def _run(ws, cmd, rid, ap, opts):
-        async for update in separate_stems_with_progress(ap, opts):
-            update["command"] = cmd
-            if rid is not None:
-                update["_requestId"] = rid
-            await ws.send_json(update)
-
-    task = asyncio.create_task(
-        _run(websocket, command, request_id, apath, msg.get("options", {}))
-    )
-    return task
-
-
-async def handle_cancel_stem_separation(msg):
-    logger.info("WS command: cancel_stem_separation")
-    cancel_stem_separation()
-    return {"success": True}
-
-
-async def handle_analyze_music(websocket, msg, command, request_id):
-    """Start ML music analysis as a background task. Returns task ref for cleanup."""
-    logger.info("WS command: analyze_music (with progress)")
-
-    apath = msg.get("audioPath") or msg.get("videoPath")
-    if not apath or not _is_allowed_path(apath):
-        resp = {"type": "result", "command": command, "success": False, "error": "Access denied"}
-        if request_id is not None:
-            resp["_requestId"] = request_id
-        await websocket.send_json(resp)
-        return None
-
-    async def _run(ws, cmd, rid, ap, opts):
-        async for update in analyze_music_with_progress(
-            audio_path=ap,
-            options=opts,
-        ):
-            update["command"] = cmd
-            if rid is not None:
-                update["_requestId"] = rid
-            await ws.send_json(update)
-
-    task = asyncio.create_task(
-        _run(websocket, command, request_id, apath, msg.get("options", {}))
-    )
-    return task
-
-
-async def handle_cancel_music_analysis(msg):
-    logger.info("WS command: cancel_music_analysis")
-    cancel_music_analysis()
-    return {"success": True}
-
-
-async def handle_install_ml_packages(websocket, msg, command, request_id):
-    """Start ML package installation as a background task. Returns task ref for cleanup."""
-    logger.info("WS command: install_ml_packages")
-
-    async def _run(ws, cmd, rid):
-        async for update in install_ml_packages_with_progress():
-            update["command"] = cmd
-            if rid is not None:
-                update["_requestId"] = rid
-            await ws.send_json(update)
-
-    task = asyncio.create_task(_run(websocket, command, request_id))
-    return task
-
-
-async def handle_cancel_ml_install(msg):
-    logger.info("WS command: cancel_ml_install")
-    cancel_ml_install()
-    return {"success": True}
-
-
-async def handle_get_ml_status(tracker, msg):
-    logger.info("WS command: get_ml_status")
-    return {"success": True, **get_ml_status()}
-
-
 async def handle_cancel_download(msg):
     from .url_loader import cancel_download
     download_id = msg.get("downloadId")
@@ -309,13 +215,6 @@ HANDLERS = {
     "cancel_audio_analysis": handle_cancel_audio_analysis,
     "pregenerate_thumbnails": handle_pregenerate_thumbnails,
     "cancel_thumbnail_pregeneration": handle_cancel_thumbnail_pregeneration,
-    "separate_stems": handle_separate_stems,
-    "cancel_stem_separation": handle_cancel_stem_separation,
-    "analyze_music": handle_analyze_music,
-    "cancel_music_analysis": handle_cancel_music_analysis,
     "cancel_download": handle_cancel_download,
-    "install_ml_packages": handle_install_ml_packages,
-    "cancel_ml_install": handle_cancel_ml_install,
-    "get_ml_status": handle_get_ml_status,
     "ping": handle_ping,
 }

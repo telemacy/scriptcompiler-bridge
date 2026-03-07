@@ -19,9 +19,6 @@ from .scene_detector import detect_scenes, cancel_detection
 from .video_stitcher import start_stitch_background, get_stitch_progress, cancel_stitching
 from .audio_analyzer import cancel_audio_analysis
 from .thumbnail_cache import cancel_pregeneration
-from .stem_separator import cancel_stem_separation
-from .music_analyzer import cancel_music_analysis
-from .ml_installer import cancel_ml_install, get_ml_status, get_install_progress, setup_ml_path, _install_ml_packages_sync
 from .settings import get_video_folders, get_settings, update_settings
 from .url_loader import start_download as ytdlp_start_download, fetch_video_info as ytdlp_fetch_video_info, get_active_downloads as ytdlp_get_active_downloads
 from .updater import check_for_update, get_cached_update, download_and_run_update
@@ -85,31 +82,13 @@ async def health():
 
 @app.get("/capabilities")
 async def capabilities():
-    caps = ["files", "scenes", "tracking"]
+    caps = ["files", "scenes", "tracking", "audio_analysis"]
     if get_video_folders():
         caps.append("local_videos")
-    try:
-        import librosa  # noqa: F401
-        caps.append("audio_analysis")
-    except ImportError:
-        pass
-    try:
-        import demucs  # noqa: F401
-        caps.append("stem_separation")
-    except ImportError:
-        pass
-    try:
-        import beat_this  # noqa: F401
-        import allin1  # noqa: F401
-        caps.append("music_analysis")
-    except ImportError:
-        pass
-    ml_status = get_ml_status()
     return {
         "capabilities": caps,
         "version": BRIDGE_VERSION,
         "tracking_ready": tracker.is_ready,
-        "ml_status": ml_status,
     }
 
 
@@ -194,18 +173,6 @@ async def check_update():
 async def apply_update():
     result = download_and_run_update(shutdown_callback=_shutdown_server)
     return JSONResponse(content=result)
-
-
-# --- ML Packages ---
-
-@app.get("/ml/status")
-async def ml_status_endpoint():
-    return JSONResponse(content=get_ml_status())
-
-
-@app.get("/ml/install/progress")
-async def ml_install_progress_endpoint():
-    return JSONResponse(content=get_install_progress())
 
 
 # --- Video Library ---
@@ -548,9 +515,6 @@ async def tracking_ws(websocket: WebSocket):
     scene_detect_task = None
     audio_analyze_task = None
     thumbnail_pregen_task = None
-    stem_separation_task = None
-    music_analyze_task = None
-    ml_install_task = None
 
     if not tracker.is_ready:
         init_result = await tracker.initialize()
@@ -592,19 +556,7 @@ async def tracking_ws(websocket: WebSocket):
                     result = await handler(websocket, msg, command, request_id)
                     thumbnail_pregen_task = result
                     result = None
-                elif command == "separate_stems":
-                    result = await handler(websocket, msg, command, request_id)
-                    stem_separation_task = result
-                    result = None
-                elif command == "analyze_music":
-                    result = await handler(websocket, msg, command, request_id)
-                    music_analyze_task = result
-                    result = None
-                elif command == "install_ml_packages":
-                    result = await handler(websocket, msg, command, request_id)
-                    ml_install_task = result
-                    result = None
-                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "cancel_stem_separation", "cancel_music_analysis", "cancel_ml_install", "cancel_download", "ping"):
+                elif command in ("cancel_scene_detection", "cancel_audio_analysis", "cancel_thumbnail_pregeneration", "cancel_download", "ping"):
                     result = await handler(msg)
                     if command == "cancel_scene_detection":
                         scene_detect_task = None
@@ -612,12 +564,6 @@ async def tracking_ws(websocket: WebSocket):
                         audio_analyze_task = None
                     elif command == "cancel_thumbnail_pregeneration":
                         thumbnail_pregen_task = None
-                    elif command == "cancel_stem_separation":
-                        stem_separation_task = None
-                    elif command == "cancel_music_analysis":
-                        music_analyze_task = None
-                    elif command == "cancel_ml_install":
-                        ml_install_task = None
                 else:
                     result = await handler(tracker, msg)
 
@@ -662,18 +608,6 @@ async def tracking_ws(websocket: WebSocket):
             cancel_pregeneration()
             thumbnail_pregen_task.cancel()
             logger.info("Cancelled thumbnail pregeneration due to WebSocket disconnect")
-        if stem_separation_task is not None:
-            cancel_stem_separation()
-            stem_separation_task.cancel()
-            logger.info("Cancelled stem separation due to WebSocket disconnect")
-        if music_analyze_task is not None:
-            cancel_music_analysis()
-            music_analyze_task.cancel()
-            logger.info("Cancelled music analysis due to WebSocket disconnect")
-        if ml_install_task is not None:
-            cancel_ml_install()
-            ml_install_task.cancel()
-            logger.info("Cancelled ML install due to WebSocket disconnect")
         if tracker.is_ready:
             try:
                 await tracker.stop_tracking()
@@ -699,11 +633,6 @@ async def startup_event():
     # Clean up old thumbnail caches in background
     loop.run_in_executor(EXECUTOR, thumbnail_cache.cleanup_old_caches)
 
-    # Auto-install ML packages in background if not already installed
-    ml_status = get_ml_status()
-    if not ml_status["all_installed"]:
-        logger.info("ML packages not fully installed, starting background install...")
-        loop.run_in_executor(EXECUTOR, _install_ml_packages_sync)
 
 
 @app.on_event("shutdown")
