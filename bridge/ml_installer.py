@@ -291,6 +291,13 @@ def _install_ml_packages_sync():
     """Install all ML packages synchronously. Called from executor."""
     global _install_progress
 
+    # Quick check: if everything is already installed, skip entirely
+    setup_ml_path()
+    pre_check = get_ml_status()
+    if pre_check["all_installed"]:
+        logger.info("All ML packages already installed, nothing to do")
+        return {"success": True, "gpu_available": pre_check["gpu_available"]}
+
     _install_progress = {
         "active": True, "stage": "preparing", "percent": 0,
         "done": False, "error": None, "cancelled": False
@@ -315,23 +322,51 @@ def _install_ml_packages_sync():
             _install_progress["active"] = False
             return {"success": False, "cancelled": True}
 
+        # Check what's already installed so we can skip re-installing
+        current_status = get_ml_status()
+
         # Step 2: Install torch + torchaudio (largest, ~2GB)
-        ok, err = _run_pip(
-            ["torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu121"],
-            target_dir, _install_progress,
-            "installing_torch", 5, 50
-        )
-        if not ok:
-            # Fallback to CPU-only torch if CUDA install fails
-            logger.warning("CUDA torch install failed, trying CPU-only: %s", err)
-            _install_progress["stage"] = "installing_torch_cpu"
+        if current_status["torch"]:
+            logger.info("torch already installed, skipping")
+            _install_progress["percent"] = 50
+        else:
             ok, err = _run_pip(
-                ["torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"],
+                ["torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu121"],
                 target_dir, _install_progress,
-                "installing_torch_cpu", 10, 50
+                "installing_torch", 5, 50
             )
             if not ok:
-                _install_progress["error"] = f"Failed to install torch: {err}"
+                # Fallback to CPU-only torch if CUDA install fails
+                logger.warning("CUDA torch install failed, trying CPU-only: %s", err)
+                _install_progress["stage"] = "installing_torch_cpu"
+                ok, err = _run_pip(
+                    ["torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"],
+                    target_dir, _install_progress,
+                    "installing_torch_cpu", 10, 50
+                )
+                if not ok:
+                    _install_progress["error"] = f"Failed to install torch: {err}"
+                    _install_progress["done"] = True
+                    _install_progress["active"] = False
+                    return {"success": False, "error": _install_progress["error"]}
+
+        if _install_progress.get("cancelled"):
+            _install_progress["done"] = True
+            _install_progress["active"] = False
+            return {"success": False, "cancelled": True}
+
+        # Step 3: Install demucs
+        if current_status["demucs"]:
+            logger.info("demucs already installed, skipping")
+            _install_progress["percent"] = 70
+        else:
+            ok, err = _run_pip(
+                ["demucs>=4.0.0"],
+                target_dir, _install_progress,
+                "installing_demucs", 50, 70
+            )
+            if not ok:
+                _install_progress["error"] = f"Failed to install demucs: {err}"
                 _install_progress["done"] = True
                 _install_progress["active"] = False
                 return {"success": False, "error": _install_progress["error"]}
@@ -341,34 +376,21 @@ def _install_ml_packages_sync():
             _install_progress["active"] = False
             return {"success": False, "cancelled": True}
 
-        # Step 3: Install demucs
-        ok, err = _run_pip(
-            ["demucs>=4.0.0"],
-            target_dir, _install_progress,
-            "installing_demucs", 50, 70
-        )
-        if not ok:
-            _install_progress["error"] = f"Failed to install demucs: {err}"
-            _install_progress["done"] = True
-            _install_progress["active"] = False
-            return {"success": False, "error": _install_progress["error"]}
-
-        if _install_progress.get("cancelled"):
-            _install_progress["done"] = True
-            _install_progress["active"] = False
-            return {"success": False, "cancelled": True}
-
         # Step 4: Install allin1
-        ok, err = _run_pip(
-            ["allin1>=1.1.0"],
-            target_dir, _install_progress,
-            "installing_allin1", 70, 85
-        )
-        if not ok:
-            _install_progress["error"] = f"Failed to install allin1: {err}"
-            _install_progress["done"] = True
-            _install_progress["active"] = False
-            return {"success": False, "error": _install_progress["error"]}
+        if current_status["allin1"]:
+            logger.info("allin1 already installed, skipping")
+            _install_progress["percent"] = 85
+        else:
+            ok, err = _run_pip(
+                ["allin1>=1.1.0"],
+                target_dir, _install_progress,
+                "installing_allin1", 70, 85
+            )
+            if not ok:
+                _install_progress["error"] = f"Failed to install allin1: {err}"
+                _install_progress["done"] = True
+                _install_progress["active"] = False
+                return {"success": False, "error": _install_progress["error"]}
 
         if _install_progress.get("cancelled"):
             _install_progress["done"] = True
@@ -376,16 +398,20 @@ def _install_ml_packages_sync():
             return {"success": False, "cancelled": True}
 
         # Step 5: Install beat-this from GitHub
-        ok, err = _run_pip(
-            ["beat-this @ git+https://github.com/CPJKU/beat_this.git"],
-            target_dir, _install_progress,
-            "installing_beat_this", 85, 95
-        )
-        if not ok:
-            _install_progress["error"] = f"Failed to install beat-this: {err}"
-            _install_progress["done"] = True
-            _install_progress["active"] = False
-            return {"success": False, "error": _install_progress["error"]}
+        if current_status["beat_this"]:
+            logger.info("beat_this already installed, skipping")
+            _install_progress["percent"] = 95
+        else:
+            ok, err = _run_pip(
+                ["beat-this @ git+https://github.com/CPJKU/beat_this.git"],
+                target_dir, _install_progress,
+                "installing_beat_this", 85, 95
+            )
+            if not ok:
+                _install_progress["error"] = f"Failed to install beat-this: {err}"
+                _install_progress["done"] = True
+                _install_progress["active"] = False
+                return {"success": False, "error": _install_progress["error"]}
 
         # Step 6: Add to sys.path and verify
         _install_progress["stage"] = "verifying"
