@@ -195,6 +195,7 @@ async def get_settings_endpoint():
 
 class UpdateSettingsRequest(BaseModel):
     yt_dlp_quality: Optional[str] = None
+    yt_dlp_impersonate: Optional[str] = None
     autostart: Optional[bool] = None
 
 

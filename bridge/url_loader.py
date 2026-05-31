@@ -58,6 +58,13 @@ def _get_quality():
     )
 
 
+def _impersonate_args():
+    target = get_settings().get("yt_dlp_impersonate", "chrome")
+    if not target:
+        return []
+    return ["--impersonate", target]
+
+
 async def get_output_filename(url: str, output_folder: str, output_template: str = None) -> str:
     """Ask yt-dlp what the output filename will be without downloading."""
     ytdlp = get_ytdlp_path()
@@ -74,6 +81,7 @@ async def get_output_filename(url: str, output_folder: str, output_template: str
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
         "--get-filename",
+        *_impersonate_args(),
         "-f", quality,
         "-o", output_template,
         url,
@@ -113,6 +121,7 @@ async def fetch_video_info(url: str) -> dict:
         ytdlp,
         "--dump-json",
         "--no-playlist",
+        *_impersonate_args(),
         url,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -195,6 +204,7 @@ async def start_download(url: str, websocket_broadcast, video_info=None) -> tupl
 
     proc = await asyncio.create_subprocess_exec(
         ytdlp,
+        *_impersonate_args(),
         "-f", quality,
         "-o", template,
         "--newline",

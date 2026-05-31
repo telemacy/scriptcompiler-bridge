@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_SETTINGS = {
     "video_folders": [],
     "yt_dlp_quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+    "yt_dlp_impersonate": "chrome",
     "autostart": False,
 }
 
